@@ -1,75 +1,73 @@
-import { NextRequest } from 'next/server';
+import { NextResponse } from "next/server";
+import { SEED, filterRecipes, type Area, type Stage, AREAS, STAGES } from "@/lib/prompts";
 
-export const runtime = 'edge';
+// Stateless JSON-RPC MCP endpoint over the sample prompt recipes the page starts with.
+// Recipes a visitor adds or edits live only in that visitor's browser, so the server cannot see them.
 
-interface MCPRequest {
-  jsonrpc: '2.0';
-  id: number | string;
-  method: string;
-  params?: Record<string, unknown>;
+type RpcRequest = { id?: number | string | null; method?: string; params?: { name?: string; arguments?: Record<string, unknown> } };
+
+const TOOLS = [
+  { name: "get_all", description: "List the sample prompt recipes", inputSchema: { type: "object", properties: {} } },
+  { name: "get_by_id", description: "Get one sample prompt recipe by id", inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] } },
+  {
+    name: "search",
+    description: "Search sample recipes by text, optionally filtered by stage and area",
+    inputSchema: {
+      type: "object",
+      properties: { query: { type: "string" }, stage: { type: "string", enum: ["All", ...STAGES] }, area: { type: "string", enum: ["All", ...AREAS] } },
+      required: ["query"],
+    },
+  },
+];
+
+class RpcError extends Error {
+  constructor(readonly code: number, message: string) {
+    super(message);
+  }
 }
 
-interface MCPResponse {
-  jsonrpc: '2.0';
-  id: number | string;
-  result?: Record<string, unknown>;
-  error?: {
-    code: number;
-    message: string;
-  };
-}
-
-async function getData() {
-  return { message: 'Sample data' };
-}
-
-export async function POST(request: NextRequest) {
-  let requestId: number | string = 0;
-
-  try {
-    const body: MCPRequest = await request.json();
-    requestId = body.id;
-    const { method, id } = body;
-
-    let result: Record<string, unknown> = {};
-
-    switch (method) {
-      case 'initialize':
-        result = {
-          protocolVersion: '2024-11-05',
-          capabilities: { tools: {} },
-          serverInfo: { name: 'MCP Server', version: '1.0.0' }
-        };
-        break;
-
-      case 'tools/list':
-        result = {
-          tools: [
-            {
-              name: 'get_data',
-              description: 'Get sample data',
-              inputSchema: { type: 'object', properties: {} }
-            }
-          ]
-        };
-        break;
-
-      case 'tools/call':
-        result = await getData();
-        break;
-
-      default:
-        throw new Error(`Unknown method: ${method}`);
+function callTool(name: string | undefined, args: Record<string, unknown> = {}) {
+  switch (name) {
+    case "get_all":
+      return { recipes: SEED };
+    case "get_by_id": {
+      const recipe = SEED.find((entry) => entry.id === args.id);
+      if (!recipe) throw new RpcError(-32602, `No recipe with id ${String(args.id)}`);
+      return { recipe };
     }
+    case "search": {
+      const stage = STAGES.includes(args.stage as Stage) ? (args.stage as Stage) : "All";
+      const area = AREAS.includes(args.area as Area) ? (args.area as Area) : "All";
+      return { recipes: filterRecipes(SEED, stage, area, typeof args.query === "string" ? args.query : "") };
+    }
+    default:
+      throw new RpcError(-32602, `Unknown tool: ${String(name)}`);
+  }
+}
 
-    const response: MCPResponse = { jsonrpc: '2.0', id, result };
-    return Response.json(response);
-
+export async function POST(request: Request) {
+  let id: RpcRequest["id"] = null;
+  try {
+    const body = (await request.json()) as RpcRequest;
+    id = body.id ?? null;
+    let result: unknown;
+    switch (body.method) {
+      case "initialize":
+        result = { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "Prompt Workbench", version: "1.0.0" } };
+        break;
+      case "tools/list":
+        result = { tools: TOOLS };
+        break;
+      case "tools/call":
+        result = callTool(body.params?.name, body.params?.arguments);
+        break;
+      default:
+        throw new RpcError(-32601, `Unknown method: ${String(body.method)}`);
+    }
+    return NextResponse.json({ jsonrpc: "2.0", id, result });
   } catch (error) {
-    return Response.json({
-      jsonrpc: '2.0',
-      id: requestId,
-      error: { code: -32603, message: error instanceof Error ? error.message : 'Internal error' }
-    }, { status: 500 });
+    const code = error instanceof RpcError ? error.code : -32700;
+    const message = error instanceof RpcError ? error.message : "Parse error";
+    return NextResponse.json({ jsonrpc: "2.0", id, error: { code, message } }, { status: 400 });
   }
 }
