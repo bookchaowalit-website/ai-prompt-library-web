@@ -1,48 +1,46 @@
-# Product
+# Prompt Workbench — Product truth
 
-<!-- impeccable:product-schema 1 -->
+> Inferred from the code and copy (no user interview). Checked against the portfolio card claims review
+> (`portfolio-site-web/docs/audits/CARD-CLAIMS-REVIEW-2026-10.md`, row `prompt-library`, evidence Prototype) on 2026-10-23.
 
-## Platform
+## What it is
 
-web
+A client-only prompt recipe shelf: four authored sample recipes that a visitor can browse, edit, copy, add to and
+remove, saved only in that browser's localStorage.
 
-## Users
+## Who it is for
 
-Solo operators and builders who reuse prompt recipes across engineering, research, and writing work.
+A solo builder (or a portfolio visitor) who reuses a few prompt instructions across engineering, research and writing
+work and wants the exact text easy to find and copy.
 
-## Product Purpose
+## What works today
 
-Prompt Workbench keeps proven prompt recipes inspectable and easy to adapt. Success means a visitor can find a recipe by job, edit its instructions, copy the exact text, and understand the stage it is meant for without implying that this local library runs a model or guarantees an output.
+1. Filter recipes by lifecycle stage (Draft, Refine, Ready, Retired, with counts) and by area (Engineering, Research,
+   Writing); search title, purpose, instruction text and area (case-insensitive).
+2. Open a recipe, edit its instruction, save the revision in this browser, or copy the exact text to the clipboard.
+   An unsaved edit belongs to the recipe it was typed in and is dropped when another recipe opens.
+3. Add a recipe (name and instruction required, purpose optional) or remove the open one.
+4. Saved recipes are read back on reload; malformed saved entries are skipped instead of crashing the page.
+5. `/api/mcp` answers JSON-RPC with `get_all`, `get_by_id` and `search` (text, stage, area) over the four sample
+   recipes. Recipes a visitor adds or edits stay in their browser, so the server cannot see them.
+6. Front-end and server errors go to Sentry (errors only, personal data stripped) when `NEXT_PUBLIC_SENTRY_DSN` is set.
 
-## Positioning
+## What does not work (and must not be claimed)
 
-This is a prompt workbench, not a chat interface. It helps a person prepare and reuse an instruction; execution stays with the provider and workflow they choose.
+- No variable placeholders filled in, version history, ratings, forking, URL sharing or "200+ tested prompts"
+  (claims removed from the portfolio card in the 2026-10 review). `{{...}}` markers are plain text.
+- No model connection: nothing runs a prompt or shows an output. No account, sync or export.
 
-## Operating Context
+## Live URL and deploy state
 
-The current app is a browser-only portfolio demonstration with deterministic sample recipes. User additions and edits stay in localStorage. There is no model API, provider billing, account, sync, or claim that the examples are universally best.
+- Live: https://prompt-library.bookchaowalit.com (HTTP 200 on 2026-10-23).
+- The Vercel project `bookchaowalit-prompt-library-frontend` is deployed only by CLI (last production 2026-10-23,
+  the CVE patch commit 51b987b) and its Git link names the old repository
+  (`bookchaowalit/bookchaowalit-prompt-library-frontend`), so a push to `main` does not deploy. The live site lags
+  `main` (no Sentry, old template MCP route, the stale-editor fix) until the owner reconnects Vercel Git to this
+  repository (owner action D9). `NEXT_PUBLIC_SENTRY_DSN` is set on the Vercel project (Sentry project
+  `ai-prompt-library-web`, org `personal-yu0`).
 
-## Capabilities and Constraints
+## Boundaries
 
-- Browse and filter prompt recipes by work area and lifecycle stage.
-- Search prompt name, purpose, and instruction text.
-- Select a recipe, edit its instruction, save the revision locally, and copy it.
-- Add and remove local recipes.
-- Keep copy honest: the library stores text; it does not execute prompts or fabricate results.
-- Support keyboard and touch input, clear feedback, readable mobile layout, and reduced motion.
-
-## Evidence on Hand
-
-- Existing implementation: `app/page.tsx`, `app/globals.css`, and `app/layout.tsx`.
-- Evidence is limited to deterministic sample recipes and browser-local state; no model output or production usage data is available.
-
-## Product Principles
-
-- Show the instruction before promising the outcome.
-- Reuse should be faster than rewriting from memory.
-- Stage is a cue for readiness, not a quality score.
-- Copying is an explicit handoff to another tool.
-
-## Accessibility & Inclusion
-
-Use semantic forms and buttons, visible keyboard focus, strong contrast, clear live feedback, readable text areas, reduced-motion support, and text equivalents for all stage signals.
+- Browser-only apart from the stateless `/api/mcp` route. Design notes live in `DESIGN.md`.
