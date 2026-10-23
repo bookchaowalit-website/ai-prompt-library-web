@@ -1,120 +1,42 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState, useSyncExternalStore, type FormEvent } from "react";
+import { createLocalStore } from "@/lib/local-store";
+import { AREAS, SEED, STAGES, STORAGE_KEY, buildRecipe, countByStage, editorText, filterRecipes, parseRecipes, pickSelected, removeRecipe as withoutRecipe, reviseRecipe, type Area, type Draft, type PromptRecipe, type Stage } from "@/lib/prompts";
 
-type Stage = "Draft" | "Refine" | "Ready" | "Retired";
-type Area = "Engineering" | "Research" | "Writing";
-
-type PromptRecipe = {
-  id: string;
-  title: string;
-  area: Area;
-  stage: Stage;
-  purpose: string;
-  content: string;
-  updatedAt: number;
-};
-
-const STAGES: Stage[] = ["Draft", "Refine", "Ready", "Retired"];
-const AREAS: Area[] = ["Engineering", "Research", "Writing"];
-
-const SEED: PromptRecipe[] = [
-  {
-    id: "review-diff",
-    title: "Review a diff for behavior, not just style",
-    area: "Engineering",
-    stage: "Ready",
-    purpose: "A second pair of eyes for regressions and unclear assumptions.",
-    content: "Review the following code change as a senior engineer. Identify behavior regressions, missing edge cases, unsafe assumptions, and tests that should be added. Prioritize findings by impact. If the change is sound, say what evidence supports that conclusion.\n\nDIFF:\n{{paste diff here}}",
-    updatedAt: Date.parse("2026-08-20"),
-  },
-  {
-    id: "research-brief",
-    title: "Turn a question into a research brief",
-    area: "Research",
-    stage: "Refine",
-    purpose: "Shape an open question before collecting sources or opinions.",
-    content: "Help me turn this loose question into a research brief. State the decision it could inform, define what we know and do not know, list three falsifiable sub-questions, and propose evidence that would change the decision. Do not answer the question yet.\n\nQUESTION:\n{{question}}",
-    updatedAt: Date.parse("2026-08-17"),
-  },
-  {
-    id: "plain-language",
-    title: "Rewrite a technical note for a human reader",
-    area: "Writing",
-    stage: "Ready",
-    purpose: "Keep the technical truth while removing unnecessary ceremony.",
-    content: "Rewrite the note below for a capable reader who does not share the author's context. Keep the claim, constraints, and uncertainty intact. Prefer concrete verbs, short paragraphs, and examples where they remove ambiguity. Return only the revised note, followed by a short list of meaningful changes.\n\nNOTE:\n{{paste note here}}",
-    updatedAt: Date.parse("2026-08-12"),
-  },
-  {
-    id: "decision-memo",
-    title: "Expose the decision inside a messy memo",
-    area: "Research",
-    stage: "Draft",
-    purpose: "Separate evidence, interpretation, and the next reversible move.",
-    content: "Read the memo below and return four sections: decision being made, evidence directly observed, interpretation or assumption, and the smallest reversible next move. Flag any sentence that claims more certainty than the evidence allows.\n\nMEMO:\n{{paste memo here}}",
-    updatedAt: Date.parse("2026-08-08"),
-  },
-];
-
-function useLocalStorage<T>(key: string, initial: T) {
-  const [value, setValue] = useState<T>(initial);
-  const [ready, setReady] = useState(false);
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(key);
-      // Browser storage is external state; this read intentionally follows hydration.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      if (raw) setValue(JSON.parse(raw) as T);
-    } catch {
-      // Keep the sample recipes if storage is unavailable.
-    }
-    setReady(true);
-  }, [key]);
-
-  useEffect(() => {
-    if (ready) localStorage.setItem(key, JSON.stringify(value));
-  }, [key, value, ready]);
-
-  return [value, setValue] as const;
-}
+// Saved recipes live in this browser's localStorage; the server render and first paint use the samples.
+const store = createLocalStore<PromptRecipe[]>(STORAGE_KEY, SEED, parseRecipes);
 
 function createId() {
   return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `recipe-${Date.now()}`;
 }
 
 export default function Home() {
-  const [recipes, setRecipes] = useLocalStorage<PromptRecipe[]>("prompt-workbench-v2", SEED);
+  const recipes = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getServerSnapshot);
   const [query, setQuery] = useState("");
   const [stageFilter, setStageFilter] = useState<Stage | "All">("All");
   const [areaFilter, setAreaFilter] = useState<Area | "All">("All");
   const [selectedId, setSelectedId] = useState(SEED[0]?.id ?? "");
-  const [editingText, setEditingText] = useState(SEED[0]?.content ?? "");
+  const [draft, setDraft] = useState<Draft>(null);
   const [notice, setNotice] = useState("");
   const [newRecipe, setNewRecipe] = useState({ title: "", purpose: "", content: "", area: "Engineering" as Area, stage: "Draft" as Stage });
 
-  const visible = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return recipes.filter((recipe) => {
-      const matchesStage = stageFilter === "All" || recipe.stage === stageFilter;
-      const matchesArea = areaFilter === "All" || recipe.area === areaFilter;
-      const matchesQuery = !needle || `${recipe.title} ${recipe.purpose} ${recipe.content} ${recipe.area}`.toLowerCase().includes(needle);
-      return matchesStage && matchesArea && matchesQuery;
-    });
-  }, [areaFilter, query, recipes, stageFilter]);
+  const visible = useMemo(() => filterRecipes(recipes, stageFilter, areaFilter, query), [areaFilter, query, recipes, stageFilter]);
+  const stageCounts = countByStage(recipes);
 
-  const selected = recipes.find((recipe) => recipe.id === selectedId) ?? visible[0] ?? recipes[0];
+  const selected = pickSelected(recipes, visible, selectedId);
+  const editingText = editorText(selected, draft);
 
   function selectRecipe(recipe: PromptRecipe) {
     setSelectedId(recipe.id);
-    setEditingText(recipe.content);
+    setDraft(null);
     setNotice("");
   }
 
   function saveRevision() {
     if (!selected) return;
-    setRecipes((current) => current.map((recipe) => recipe.id === selected.id ? { ...recipe, content: editingText, updatedAt: Date.now() } : recipe));
+    store.update((current) => reviseRecipe(current, selected.id, editingText, Date.now()));
+    setDraft(null);
     setNotice("Revision saved in this browser.");
   }
 
@@ -130,26 +52,18 @@ export default function Home() {
 
   function removeRecipe() {
     if (!selected) return;
-    setRecipes((current) => {
-      const remaining = current.filter((recipe) => recipe.id !== selected.id);
-      const next = remaining[0];
-      if (next) {
-        setSelectedId(next.id);
-        setEditingText(next.content);
-      } else {
-        setSelectedId("");
-        setEditingText("");
-      }
-      return remaining;
-    });
+    const remaining = withoutRecipe(recipes, selected.id);
+    store.set(remaining);
+    setSelectedId(remaining[0]?.id ?? "");
+    setDraft(null);
     setNotice("Recipe removed from this browser.");
   }
 
   function addRecipe(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!newRecipe.title.trim() || !newRecipe.content.trim()) return;
-    const recipe: PromptRecipe = { id: createId(), title: newRecipe.title.trim(), purpose: newRecipe.purpose.trim() || "A local recipe waiting for a clearer purpose.", content: newRecipe.content.trim(), area: newRecipe.area, stage: newRecipe.stage, updatedAt: Date.now() };
-    setRecipes((current) => [recipe, ...current]);
+    const recipe = buildRecipe(newRecipe, createId(), Date.now());
+    if (!recipe) return;
+    store.update((current) => [recipe, ...current]);
     setStageFilter("All");
     setAreaFilter("All");
     selectRecipe(recipe);
@@ -175,7 +89,7 @@ export default function Home() {
 
         <nav className="cue-rail" aria-label="Prompt lifecycle filter">
           <button type="button" aria-pressed={stageFilter === "All"} onClick={() => setStageFilter("All")}><span>ALL CUES</span><small>{recipes.length}</small></button>
-          {STAGES.map((stage) => <button key={stage} type="button" className={`stage-${stage.toLowerCase()}`} aria-pressed={stageFilter === stage} onClick={() => setStageFilter(stage)}><span>{stage.toUpperCase()}</span><small>{recipes.filter((recipe) => recipe.stage === stage).length}</small></button>)}
+          {STAGES.map((stage) => <button key={stage} type="button" className={`stage-${stage.toLowerCase()}`} aria-pressed={stageFilter === stage} onClick={() => setStageFilter(stage)}><span>{stage.toUpperCase()}</span><small>{stageCounts[stage]}</small></button>)}
         </nav>
 
         <section className="workbench-body" aria-label="Prompt recipe workbench">
@@ -209,7 +123,7 @@ export default function Home() {
               <div className="prompt-meta"><span>{selected.stage}</span><span>{selected.area}</span><span>EDITED {new Date(selected.updatedAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}</span></div>
               <h2>{selected.title}</h2>
               <p className="prompt-purpose">{selected.purpose}</p>
-              <label className="instruction-label"><span>INSTRUCTION · EDITABLE</span><textarea value={editingText} onChange={(event) => setEditingText(event.target.value)} rows={13} /></label>
+              <label className="instruction-label"><span>INSTRUCTION · EDITABLE</span><textarea value={editingText} onChange={(event) => selected && setDraft({ id: selected.id, text: event.target.value })} rows={13} /></label>
               <div className="prompt-actions"><button type="button" className="save-cue" onClick={saveRevision}>Save revision</button><button type="button" className="copy-cue" onClick={copyRecipe}>Copy exact text</button><button type="button" className="remove-cue" onClick={removeRecipe}>Remove</button></div>
               <p className="prompt-notice" role="status" aria-live="polite">{notice}</p>
               <div className="handoff-note"><span className="label">HANDOFF</span><p>This library stores the instruction only. Choose the model, context, and review standard in the tool where you run it.</p></div>
