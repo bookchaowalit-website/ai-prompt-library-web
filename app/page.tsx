@@ -58,6 +58,9 @@ export default function Home() {
   const undoRef = useRef<HTMLButtonElement>(null);
   const toastRef = useRef<HTMLDivElement>(null);
   const focusRecipesNext = useRef<string[] | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  // A revision just saved: if the edit made the recipe drop out of the current search, focus goes to the search box.
+  const savedRecipe = useRef<string | null>(null);
   const wasComposing = useRef(false);
 
   const visible = useMemo(() => filterRecipes(recipes, stageFilter, areaFilter, query), [areaFilter, query, recipes, stageFilter]);
@@ -113,7 +116,17 @@ export default function Home() {
     store.update((current) => reviseRecipe(current, recipe.id, text, Date.now()));
     setDraft(null);
     setNotice("Revision saved in this browser.");
+    // The row's own status leaves with the row when the new text no longer matches the search: the page-level
+    // live region says it too.
+    setAnnouncement(`Revision of “${recipe.title}” saved in this browser.`);
+    savedRecipe.current = recipe.id;
   }
+  useEffect(() => {
+    const id = savedRecipe.current;
+    if (!id) return;
+    savedRecipe.current = null;
+    if (!visible.some((r) => r.id === id)) searchRef.current?.focus();
+  }, [visible]);
 
   async function copyRecipe(text: string) {
     try {
@@ -153,8 +166,10 @@ export default function Home() {
     store.update((current) => restoreRecipes(current, items));
     const latest = items[items.length - 1].recipe;
     setAnnouncement(items.length === 1 ? `Restored “${latest.title}”.` : `Restored ${plural(items.length)}.`);
-    // Undone: back to the restored recipe the user removed last, opened.
-    setOpenId(latest.id);
+    // Undone: back to the restored recipe the user removed last, opened, unless another recipe is open with
+    // unsaved edits: that editor (and its draft) stays, and only the restored row takes focus.
+    const editingOther = draft !== null && draft.id === openId && draft.id !== latest.id && recipes.some((r) => r.id === draft.id && r.content !== draft.text);
+    if (!editingOther) setOpenId(latest.id);
     closeToast([latest.id]);
   }
 
@@ -205,7 +220,7 @@ export default function Home() {
             <div className="as-tools">
               <label className="as-search">
                 <span className="as-sr">Search recipes</span>
-                <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, purpose or text" />
+                <input ref={searchRef} type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, purpose or text" />
               </label>
               <button ref={newButton} type="button" className="as-button" onClick={() => setComposing(true)} disabled={composing}><PlusIcon />New recipe</button>
             </div>

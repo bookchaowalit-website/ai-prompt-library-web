@@ -170,3 +170,31 @@ describe("recipe detail", () => {
     expect(document.activeElement?.textContent).toContain("New recipe");
   });
 });
+
+describe("review 2026-11-19 (late)", () => {
+  it("Undo of a removal keeps another recipe's open editor and its unsaved draft", () => {
+    press($("[aria-label^='Remove Review a diff']")!);
+    // Open another recipe and start editing it before Undo.
+    const head = [...host.querySelectorAll<HTMLButtonElement>(".pl-row-head")].find((b) => b.textContent?.includes("research brief"))!;
+    press(head);
+    type($<HTMLTextAreaElement>(".pl-detail textarea")!, "Unsaved draft text");
+    press(button("Undo", $(".as-toast")!));
+    expect(titles()).toHaveLength(4);
+    const editor = $<HTMLTextAreaElement>(".pl-detail textarea")!;
+    expect(editor.value).toBe("Unsaved draft text");
+    expect(editor.closest("li")!.textContent).toContain("research brief");
+  });
+
+  it("a saved revision that drops out of the search is still confirmed, and focus goes to the search box", () => {
+    const search = $<HTMLInputElement>('input[type="search"]')!;
+    type(search, "senior engineer");
+    expect(titles()).toEqual(["Review a diff for behavior, not just style"]);
+    press($(".pl-row-head")!);
+    if (!$(".pl-detail")) press($(".pl-row-head")!);
+    type($<HTMLTextAreaElement>(".pl-detail textarea")!, "Review this change for regressions.");
+    press(button("Save revision"));
+    expect(titles()).toEqual([]);
+    expect($('p.as-sr[role="status"]')!.textContent).toBe("Revision of “Review a diff for behavior, not just style” saved in this browser.");
+    expect(document.activeElement).toBe(search);
+  });
+});
