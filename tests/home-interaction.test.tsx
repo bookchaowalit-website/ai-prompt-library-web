@@ -196,5 +196,36 @@ describe("review 2026-11-19 (late)", () => {
     expect(titles()).toEqual([]);
     expect($('p.as-sr[role="status"]')!.textContent).toBe("Revision of “Review a diff for behavior, not just style” saved in this browser.");
     expect(document.activeElement).toBe(search);
+    // Visible too, outside the row that left: not only the screen-reader live region.
+    expect($(".pl-saved")!.textContent).toContain("Revision of “Review a diff for behavior, not just style” saved");
+    type(search, "");
+    expect($(".pl-saved")).toBeNull();
+  });
+
+  it("keeps an unsaved draft when its recipe is collapsed and opened again, and drops it when another opens", () => {
+    const head = () => $<HTMLButtonElement>(".pl-row-head")!;
+    type($<HTMLTextAreaElement>(".pl-detail textarea")!, "Half-written edit");
+    press(head());
+    expect($(".pl-detail")).toBeNull();
+    press(head());
+    expect($<HTMLTextAreaElement>(".pl-detail textarea")!.value).toBe("Half-written edit");
+    const other = [...host.querySelectorAll<HTMLButtonElement>(".pl-row-head")].find((b) => b.textContent?.includes("research brief"))!;
+    press(other);
+    press(head());
+    expect($<HTMLTextAreaElement>(".pl-detail textarea")!.value).not.toBe("Half-written edit");
+  });
+
+  it("shows Prompt copied only under the recipe that was copied", async () => {
+    Object.defineProperty(navigator, "clipboard", { value: { writeText: vi.fn().mockResolvedValue(undefined) }, configurable: true });
+    press($("[aria-label^='Remove Review a diff']")!);
+    const other = [...host.querySelectorAll<HTMLButtonElement>(".pl-row-head")].find((b) => b.textContent?.includes("research brief"))!;
+    press(other);
+    await act(async () => { button("Copy exact text").click(); });
+    expect($(".pl-detail")!.textContent).toContain("Prompt copied.");
+    // Undo opens the restored recipe; B's copy message must not appear under it.
+    press(button("Undo", $(".as-toast")!));
+    const open = $(".pl-detail")!;
+    expect(open.closest("li")!.textContent).toContain("Review a diff");
+    expect(open.textContent).not.toContain("Prompt copied.");
   });
 });

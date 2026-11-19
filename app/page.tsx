@@ -43,7 +43,11 @@ export default function Home() {
   const [areaFilter, setAreaFilter] = useState<Area | "All">("All");
   const [openId, setOpenId] = useState(SEED[0]?.id ?? "");
   const [draft, setDraft] = useState<Draft>(null);
-  const [notice, setNotice] = useState("");
+  // A status line belongs to the recipe it is about, so it never shows under another one (e.g. after Undo).
+  const [notice, setNoticeState] = useState<{ id: string; text: string } | null>(null);
+  const setNotice = (id: string, text: string) => setNoticeState(text ? { id, text } : null);
+  // A revision saved while the recipe drops out of the search: confirmed above the list, since its row has gone.
+  const [savedOff, setSavedOff] = useState("");
   const [composing, setComposing] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   // Every removal still inside the Undo window: one Undo puts them all back where they were.
@@ -108,14 +112,18 @@ export default function Home() {
 
   function toggle(recipe: PromptRecipe) {
     setOpenId((current) => (current === recipe.id ? "" : recipe.id));
-    setDraft(null);
-    setNotice("");
+    // Collapsing (or reopening) a recipe keeps its unsaved draft; opening another recipe drops it.
+    setDraft((current) => (current?.id === recipe.id ? current : null));
+    setNoticeState(null);
+    setSavedOff("");
   }
 
   function saveRevision(recipe: PromptRecipe, text: string) {
     store.update((current) => reviseRecipe(current, recipe.id, text, Date.now()));
     setDraft(null);
-    setNotice("Revision saved in this browser.");
+    setNotice(recipe.id, "Revision saved in this browser.");
+    const stillShown = filterRecipes(store.getSnapshot(), stageFilter, areaFilter, query).some((r) => r.id === recipe.id);
+    setSavedOff(stillShown ? "" : `Revision of “${recipe.title}” saved in this browser. It is hidden by the current search or filters.`);
     // The row's own status leaves with the row when the new text no longer matches the search: the page-level
     // live region says it too.
     setAnnouncement(`Revision of “${recipe.title}” saved in this browser.`);
@@ -128,12 +136,12 @@ export default function Home() {
     if (!visible.some((r) => r.id === id)) searchRef.current?.focus();
   }, [visible]);
 
-  async function copyRecipe(text: string) {
+  async function copyRecipe(id: string, text: string) {
     try {
       await navigator.clipboard.writeText(text);
-      setNotice("Prompt copied. The next handoff starts with this exact text.");
+      setNotice(id, "Prompt copied. The next handoff starts with this exact text.");
     } catch {
-      setNotice("Copy was blocked by the browser. Select the text and copy it manually.");
+      setNotice(id, "Copy was blocked by the browser. Select the text and copy it manually.");
     }
   }
 
@@ -149,7 +157,8 @@ export default function Home() {
     setAnnouncement(`${removedLabel(items)}. Undo is available for a few seconds.`);
     setOpenId("");
     setDraft(null);
-    setNotice("");
+    setNoticeState(null);
+    setSavedOff("");
   }
 
   function closeToast(focusIds?: string[]) {
@@ -188,7 +197,8 @@ export default function Home() {
     setQuery("");
     setOpenId(recipe.id);
     setDraft(null);
-    setNotice("Recipe added.");
+    setNotice(recipe.id, "Recipe added.");
+    setSavedOff("");
     closeComposer();
   }
 
@@ -220,7 +230,7 @@ export default function Home() {
             <div className="as-tools">
               <label className="as-search">
                 <span className="as-sr">Search recipes</span>
-                <input ref={searchRef} type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, purpose or text" />
+                <input ref={searchRef} type="search" value={query} onChange={(event) => { setQuery(event.target.value); setSavedOff(""); }} placeholder="Search name, purpose or text" />
               </label>
               <button ref={newButton} type="button" className="as-button" onClick={() => setComposing(true)} disabled={composing}><PlusIcon />New recipe</button>
             </div>
@@ -254,6 +264,8 @@ export default function Home() {
             </form>
           ) : null}
 
+          {savedOff ? <p className="pl-saved">{savedOff}</p> : null}
+
           {visible.length > 0 ? (
             <ul className="as-list">
               {visible.map((recipe) => {
@@ -278,10 +290,10 @@ export default function Home() {
                         </label>
                         <div className="pl-actions">
                           <button type="button" className="as-button" onClick={() => saveRevision(recipe, text)} disabled={text === recipe.content}>Save revision</button>
-                          <button type="button" className="as-plain" onClick={() => copyRecipe(text)}>Copy exact text</button>
+                          <button type="button" className="as-plain" onClick={() => copyRecipe(recipe.id, text)}>Copy exact text</button>
                           <button type="button" className="as-plain as-danger" aria-label={`Remove ${recipe.title}`} onClick={(event) => remove(recipe, event.detail === 0)}>Remove</button>
                         </div>
-                        <p className="pl-status" role="status">{notice}</p>
+                        <p className="pl-status" role="status">{notice?.id === recipe.id ? notice.text : ""}</p>
                       </div>
                     ) : null}
                   </li>
@@ -295,7 +307,7 @@ export default function Home() {
               ) : (
                 <><strong>No recipe matches</strong>Try another stage, area or search term.
                   <div className="as-actions-row" style={{ justifyContent: "center" }}>
-                    <button type="button" className="as-plain" onClick={() => { setStageFilter("All"); setAreaFilter("All"); setQuery(""); }}>Clear filters</button>
+                    <button type="button" className="as-plain" onClick={() => { setStageFilter("All"); setAreaFilter("All"); setQuery(""); setSavedOff(""); searchRef.current?.focus(); }}>Clear filters</button>
                   </div>
                 </>
               )}

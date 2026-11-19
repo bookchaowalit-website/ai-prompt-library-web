@@ -28,3 +28,5 @@ html, body { margin: 0; background: var(--as-bg); }
 .as-button:disabled { opacity: 1; background: var(--as-selected); color: var(--as-grey); }
 @media (max-width: 760px) { .pl-areas .as-segmented { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 520px) { .pl-pair { grid-template-columns: 1fr; } }
+/* A revision saved while its recipe left the search: confirmed above the list, where its row used to be. */
+.pl-saved { margin: 0 0 12px; padding: 10px 14px; border: 1px solid var(--as-line); border-radius: 12px; background: var(--as-surface); font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
