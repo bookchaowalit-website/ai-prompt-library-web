@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { AppFoot, AppTop, ListButton, Pill, PlusIcon, type Tone } from "@/components/app-shell";
 import { createLocalStore } from "@/lib/local-store";
 import { AREAS, SEED, STAGES, STORAGE_KEY, buildRecipe, countByStage, editorText, filterRecipes, parseRecipes, reviseRecipe, type Area, type Draft, type PromptRecipe, type Stage } from "@/lib/prompts";
@@ -21,6 +21,21 @@ function createId() {
 
 const plural = (n: number) => `${n} ${n === 1 ? "recipe" : "recipes"}`;
 
+// index: where it sat in the stored list when removed. nextShown / prevShown: the recipes shown around it, for focus.
+type RemovedEntry = { recipe: PromptRecipe; index: number; nextShown?: string; prevShown?: string };
+type RemovedBatch = { items: RemovedEntry[]; viaKeyboard: boolean };
+const removedLabel = (items: RemovedEntry[]) => (items.length === 1 ? `Removed “${items[0].recipe.title}”` : `Removed ${plural(items.length)}`);
+
+/** Put removed recipes back where they were, latest removal first so each index matches the list it was taken from. */
+function restoreRecipes(current: PromptRecipe[], items: RemovedEntry[]): PromptRecipe[] {
+  return items.reduceRight((list, { recipe, index }) => {
+    if (list.some((r) => r.id === recipe.id)) return list;
+    const next = [...list];
+    next.splice(Math.min(index, next.length), 0, recipe);
+    return next;
+  }, current);
+}
+
 export default function Home() {
   const recipes = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getServerSnapshot);
   const [query, setQuery] = useState("");
@@ -31,23 +46,62 @@ export default function Home() {
   const [notice, setNotice] = useState("");
   const [composing, setComposing] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
-  const [removed, setRemoved] = useState<{ recipe: PromptRecipe; index: number } | null>(null);
+  // Every removal still inside the Undo window: one Undo puts them all back where they were.
+  const [removed, setRemovedState] = useState<RemovedBatch | null>(null);
+  // The latest batch, so two removals before a re-render still both land in it.
+  const removedRef = useRef<RemovedBatch | null>(null);
+  const setRemoved = (batch: RemovedBatch | null) => { removedRef.current = batch; setRemovedState(batch); };
+  const [toastFocused, setToastFocused] = useState(false);
+  const [announcement, setAnnouncement] = useState("");
   const firstField = useRef<HTMLInputElement>(null);
   const newButton = useRef<HTMLButtonElement>(null);
+  const undoRef = useRef<HTMLButtonElement>(null);
+  const toastRef = useRef<HTMLDivElement>(null);
+  const focusRecipesNext = useRef<string[] | null>(null);
+  const wasComposing = useRef(false);
 
   const visible = useMemo(() => filterRecipes(recipes, stageFilter, areaFilter, query), [areaFilter, query, recipes, stageFilter]);
   const stageCounts = countByStage(recipes);
   const filtered = stageFilter !== "All" || areaFilter !== "All" || query.trim() !== "";
 
+  // Open the composer on its first field; once it has closed (and New recipe is enabled again), return focus there.
   useEffect(() => {
     if (composing) firstField.current?.focus();
+    else if (wasComposing.current) newButton.current?.focus();
+    wasComposing.current = composing;
   }, [composing]);
 
+  // A removal made from the keyboard moves focus to Undo (the focused Remove button has just gone).
+  useEffect(() => { if (removed?.viaKeyboard) undoRef.current?.focus(); }, [removed]);
+  // When the toast closes after Undo or Escape, focus goes back near the removed recipe once the list has re-rendered:
+  // the first of these recipes still shown, else New recipe.
   useEffect(() => {
-    if (!removed) return;
-    const timer = setTimeout(() => setRemoved(null), UNDO_MS);
-    return () => clearTimeout(timer);
-  }, [removed]);
+    const ids = focusRecipesNext.current;
+    if (removed || !ids) return;
+    focusRecipesNext.current = null;
+    const shown = [...document.querySelectorAll<HTMLElement>(".pl-row[data-recipe]")];
+    const row = ids.map((id) => shown.find((entry) => entry.dataset.recipe === id)).find(Boolean);
+    (row?.querySelector<HTMLButtonElement>(".pl-row-head") ?? newButton.current)?.focus();
+  }, [removed, recipes]);
+  // While the toast shows, reserve its height (plus its 24px offset and a gap) at the bottom of the page and in the
+  // document's scroll-padding, so the last recipes and anything focused behind it can scroll clear of it.
+  const toastShown = removed !== null;
+  useLayoutEffect(() => {
+    const toast = toastRef.current;
+    if (!toastShown || !toast) return;
+    const rootStyle = document.documentElement.style;
+    const reserve = () => rootStyle.setProperty("--as-toast-space", `${toast.offsetHeight + 32}px`);
+    reserve();
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(reserve) : null;
+    observer?.observe(toast);
+    return () => { observer?.disconnect(); rootStyle.removeProperty("--as-toast-space"); };
+  }, [toastShown]);
+  // The Undo toast closes 6 s after the latest removal (each removal restarts it), but never while it holds focus.
+  useEffect(() => {
+    if (!removed || toastFocused) return;
+    const timer = window.setTimeout(() => { removedRef.current = null; setRemovedState(null); }, UNDO_MS);
+    return () => window.clearTimeout(timer);
+  }, [removed, toastFocused]);
 
   function toggle(recipe: PromptRecipe) {
     setOpenId((current) => (current === recipe.id ? "" : recipe.id));
@@ -70,30 +124,43 @@ export default function Home() {
     }
   }
 
-  function remove(recipe: PromptRecipe) {
-    const index = recipes.findIndex((r) => r.id === recipe.id);
-    store.set(recipes.filter((r) => r.id !== recipe.id));
-    setRemoved({ recipe, index });
+  function remove(recipe: PromptRecipe, viaKeyboard: boolean) {
+    const current = store.getSnapshot();
+    const index = current.findIndex((r) => r.id === recipe.id);
+    if (index < 0) return;
+    store.set(current.filter((r) => r.id !== recipe.id));
+    const shownAt = visible.findIndex((r) => r.id === recipe.id);
+    const entry: RemovedEntry = { recipe: current[index], index, nextShown: visible[shownAt + 1]?.id, prevShown: shownAt > 0 ? visible[shownAt - 1].id : undefined };
+    const items = [...(removedRef.current?.items ?? []), entry];
+    setRemoved({ items, viaKeyboard });
+    setAnnouncement(`${removedLabel(items)}. Undo is available for a few seconds.`);
     setOpenId("");
     setDraft(null);
     setNotice("");
   }
 
-  function undo() {
-    if (!removed) return;
-    store.update((current) => {
-      const next = [...current];
-      next.splice(Math.min(removed.index, next.length), 0, removed.recipe);
-      return next;
-    });
-    setOpenId(removed.recipe.id);
+  function closeToast(focusIds?: string[]) {
+    const last = removedRef.current?.items.at(-1);
+    // Dismissed: the recipe after the removed one, else the one before it.
+    focusRecipesNext.current = focusIds ?? [last?.nextShown, last?.prevShown].filter((id): id is string => Boolean(id));
     setRemoved(null);
+    setToastFocused(false);
+  }
+
+  function undo() {
+    const items = removedRef.current?.items;
+    if (!items?.length) return;
+    store.update((current) => restoreRecipes(current, items));
+    const latest = items[items.length - 1].recipe;
+    setAnnouncement(items.length === 1 ? `Restored “${latest.title}”.` : `Restored ${plural(items.length)}.`);
+    // Undone: back to the restored recipe the user removed last, opened.
+    setOpenId(latest.id);
+    closeToast([latest.id]);
   }
 
   function closeComposer() {
     setComposing(false);
     setForm(EMPTY_FORM);
-    newButton.current?.focus();
   }
 
   function addRecipe(event: FormEvent<HTMLFormElement>) {
@@ -114,7 +181,7 @@ export default function Home() {
   const heading = stageFilter === "All" ? "All recipes" : `${stageFilter} recipes`;
 
   return (
-    <div className="as" style={removed ? ({ "--as-toast-space": "72px" } as React.CSSProperties) : undefined}>
+    <div className="as">
       <a className="as-skip" href="#recipes">Skip to the recipes</a>
       <AppTop name="Prompt Library" tagline="Reusable prompt recipes" />
 
@@ -178,7 +245,7 @@ export default function Home() {
                 const open = recipe.id === openId;
                 const text = editorText(recipe, draft);
                 return (
-                  <li className="as-row pl-row" key={recipe.id} data-open={open ? "true" : undefined}>
+                  <li className="as-row pl-row" key={recipe.id} data-recipe={recipe.id} data-open={open ? "true" : undefined}>
                     <h3 className="pl-h">
                       <button type="button" className="pl-row-head" aria-expanded={open} aria-controls={`recipe-${recipe.id}`} onClick={() => toggle(recipe)}>
                         <span className="pl-text">
@@ -197,7 +264,7 @@ export default function Home() {
                         <div className="pl-actions">
                           <button type="button" className="as-button" onClick={() => saveRevision(recipe, text)} disabled={text === recipe.content}>Save revision</button>
                           <button type="button" className="as-plain" onClick={() => copyRecipe(text)}>Copy exact text</button>
-                          <button type="button" className="as-plain as-danger" aria-label={`Remove ${recipe.title}`} onClick={() => remove(recipe)}>Remove</button>
+                          <button type="button" className="as-plain as-danger" aria-label={`Remove ${recipe.title}`} onClick={(event) => remove(recipe, event.detail === 0)}>Remove</button>
                         </div>
                         <p className="pl-status" role="status">{notice}</p>
                       </div>
@@ -226,10 +293,19 @@ export default function Home() {
 
       <AppFoot source={SOURCE} />
 
+      <p className="as-sr" role="status" aria-live="polite">{announcement}</p>
       {removed ? (
-        <div className="as-toast" role="status">
-          <span>Removed “{removed.recipe.title}”</span>
-          <button type="button" className="as-plain" onClick={undo}>Undo</button>
+        <div
+          ref={toastRef}
+          className="as-toast"
+          role="group"
+          aria-label="Undo remove"
+          onFocus={() => setToastFocused(true)}
+          onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setToastFocused(false); }}
+          onKeyDown={(event) => { if (event.key === "Escape") closeToast(); }}
+        >
+          <span>{removedLabel(removed.items)}</span>
+          <button ref={undoRef} type="button" className="as-plain" onClick={undo} aria-label={removed.items.length === 1 ? "Undo remove" : `Undo remove of ${plural(removed.items.length)}`}>Undo</button>
         </div>
       ) : null}
     </div>

@@ -12,7 +12,9 @@ let host: HTMLDivElement;
 const $ = <T extends Element = HTMLElement>(selector: string) => host.querySelector(selector) as T | null;
 const button = (text: string, scope: ParentNode = host) => [...scope.querySelectorAll("button")].find((b) => b.textContent?.trim().startsWith(text)) as HTMLButtonElement;
 const titles = () => [...host.querySelectorAll(".pl-title")].map((t) => t.textContent);
-const press = (el: Element) => act(() => { el.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+// detail 0 = keyboard (Enter/Space) click, 1 = pointer click.
+const press = (el: Element, detail = 1) => act(() => { el.dispatchEvent(new MouseEvent("click", { bubbles: true, detail })); });
+const escape = () => act(() => { $(".as-toast")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
 function type(el: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, value: string) {
   const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : el instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
   act(() => {
@@ -106,11 +108,65 @@ describe("recipe detail", () => {
     expect($(".pl-detail")).toBeNull();
   });
 
-  it("says when the library is empty", () => {
+  it("consecutive removes restore together with one Undo", () => {
+    vi.useFakeTimers();
+    const before = titles();
+    expect(before).toHaveLength(4);
+    press($("[aria-label^='Remove Review a diff']")!);
+    act(() => { vi.advanceTimersByTime(4000); });
+    press(host.querySelectorAll(".pl-row-head")[1]);
+    press($(`[aria-label='Remove ${before[2]}']`)!);
+    expect(titles()).toEqual([before[1], before[3]]);
+    expect($(".as-toast span")!.textContent).toBe("Removed 2 recipes");
+    expect(button("Undo", $(".as-toast")!).getAttribute("aria-label")).toBe("Undo remove of 2 recipes");
+    // The second removal restarted the 6 s window: 4 s later it is still open.
+    act(() => { vi.advanceTimersByTime(4000); });
+    press(button("Undo", $(".as-toast")!));
+    expect(titles()).toEqual(before);
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toHaveLength(4);
+    expect($(".as-sr[role=status]")!.textContent).toBe("Restored 2 recipes.");
+    expect($(".as-toast")).toBeNull();
+  });
+
+  it("keyboard remove focuses Undo; Undo focuses the restored recipe, Escape the next one", () => {
+    const before = titles();
+    press($(`[aria-label='Remove ${before[0]}']`)!, 0);
+    expect(document.activeElement).toBe(button("Undo", $(".as-toast")!));
+    expect(document.documentElement.style.getPropertyValue("--as-toast-space")).toMatch(/px$/);
+    press(button("Undo", $(".as-toast")!), 0);
+    expect(titles()).toEqual(before);
+    expect(document.activeElement).toBe(host.querySelectorAll(".pl-row-head")[0]);
+    expect(document.activeElement!.getAttribute("aria-expanded")).toBe("true");
+    expect(document.documentElement.style.getPropertyValue("--as-toast-space")).toBe("");
+    press($(`[aria-label='Remove ${before[0]}']`)!, 0);
+    escape();
+    expect($(".as-toast")).toBeNull();
+    expect(document.activeElement!.textContent).toContain(before[1]);
+    // The last recipe has no next one: Escape lands on the one before it.
+    press(host.querySelectorAll(".pl-row-head")[2]);
+    press($(`[aria-label='Remove ${before[3]}']`)!, 0);
+    escape();
+    expect(document.activeElement!.textContent).toContain(before[2]);
+  });
+
+  it("keeps a focused toast open until focus leaves it", () => {
+    vi.useFakeTimers();
+    press($("[aria-label^='Remove Review a diff']")!, 0);
+    act(() => { vi.advanceTimersByTime(7000); });
+    expect($(".as-toast")).not.toBeNull();
+    act(() => { button("New recipe").focus(); });
+    act(() => { vi.advanceTimersByTime(6000); });
+    expect($(".as-toast")).toBeNull();
+  });
+
+  it("says when the library is empty, and Escape then lands on New recipe", () => {
     for (let i = 0; i < 4; i++) {
       if (!$(".pl-detail")) press($(".pl-row-head")!);
-      press($("[aria-label^='Remove']")!);
+      press($("[aria-label^='Remove']")!, 0);
     }
     expect(host.textContent).toContain("No recipes yet");
+    expect($(".as-toast span")!.textContent).toBe("Removed 4 recipes");
+    escape();
+    expect(document.activeElement?.textContent).toContain("New recipe");
   });
 });
