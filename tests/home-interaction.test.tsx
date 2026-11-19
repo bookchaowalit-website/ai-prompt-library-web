@@ -228,4 +228,15 @@ describe("review 2026-11-19 (late)", () => {
     expect(open.closest("li")!.textContent).toContain("Review a diff");
     expect(open.textContent).not.toContain("Prompt copied.");
   });
+
+  it("Undo of a removal brings back the removed recipe's unsaved draft, unsaved", () => {
+    type($<HTMLTextAreaElement>(".pl-detail textarea")!, "Typed but not saved");
+    press($("[aria-label^='Remove Review a diff']")!);
+    press(button("Undo", $(".as-toast")!));
+    const editor = $<HTMLTextAreaElement>(".pl-detail textarea")!;
+    expect(editor.closest("li")!.textContent).toContain("Review a diff");
+    expect(editor.value).toBe("Typed but not saved");
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)[0].content).not.toBe("Typed but not saved");
+    expect(button("Save revision").disabled).toBe(false);
+  });
 });

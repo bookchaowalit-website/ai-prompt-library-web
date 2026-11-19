@@ -22,7 +22,8 @@ function createId() {
 const plural = (n: number) => `${n} ${n === 1 ? "recipe" : "recipes"}`;
 
 // index: where it sat in the stored list when removed. nextShown / prevShown: the recipes shown around it, for focus.
-type RemovedEntry = { recipe: PromptRecipe; index: number; nextShown?: string; prevShown?: string };
+// draft: its unsaved editor text at the time, put back (unsaved) by Undo.
+type RemovedEntry = { recipe: PromptRecipe; index: number; nextShown?: string; prevShown?: string; draft?: string };
 type RemovedBatch = { items: RemovedEntry[]; viaKeyboard: boolean };
 const removedLabel = (items: RemovedEntry[]) => (items.length === 1 ? `Removed “${items[0].recipe.title}”` : `Removed ${plural(items.length)}`);
 
@@ -151,7 +152,8 @@ export default function Home() {
     if (index < 0) return;
     store.set(current.filter((r) => r.id !== recipe.id));
     const shownAt = visible.findIndex((r) => r.id === recipe.id);
-    const entry: RemovedEntry = { recipe: current[index], index, nextShown: visible[shownAt + 1]?.id, prevShown: shownAt > 0 ? visible[shownAt - 1].id : undefined };
+    const unsaved = draft?.id === recipe.id && draft.text !== current[index].content ? draft.text : undefined;
+    const entry: RemovedEntry = { recipe: current[index], index, nextShown: visible[shownAt + 1]?.id, prevShown: shownAt > 0 ? visible[shownAt - 1].id : undefined, draft: unsaved };
     const items = [...(removedRef.current?.items ?? []), entry];
     setRemoved({ items, viaKeyboard });
     setAnnouncement(`${removedLabel(items)}. Undo is available for a few seconds.`);
@@ -178,7 +180,12 @@ export default function Home() {
     // Undone: back to the restored recipe the user removed last, opened, unless another recipe is open with
     // unsaved edits: that editor (and its draft) stays, and only the restored row takes focus.
     const editingOther = draft !== null && draft.id === openId && draft.id !== latest.id && recipes.some((r) => r.id === draft.id && r.content !== draft.text);
-    if (!editingOther) setOpenId(latest.id);
+    if (!editingOther) {
+      setOpenId(latest.id);
+      // Its unsaved edit comes back into the editor, still unsaved.
+      const lastDraft = items[items.length - 1].draft;
+      setDraft(lastDraft === undefined ? null : { id: latest.id, text: lastDraft });
+    }
     closeToast([latest.id]);
   }
 
