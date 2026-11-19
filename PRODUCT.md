@@ -32,6 +32,10 @@ work and wants the exact text easy to find and copy.
   (claims removed from the portfolio card in the 2026-10 review). `{{...}}` markers are plain text.
 - No model connection: nothing runs a prompt or shows an output. No account, sync or export.
 
+## Known limits
+
+- With the New recipe form open, closing Undo (Escape) when no matching recipe row is left tries to focus the disabled New recipe button, so focus falls to the page; frozen app, not fixed (Codex report -ba0f882b92).
+
 ## Live URL and deploy state
 
 - Live: https://prompt-library.bookchaowalit.com (HTTP 200 on 2026-10-23).
