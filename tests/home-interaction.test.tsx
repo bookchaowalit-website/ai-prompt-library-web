@@ -239,4 +239,20 @@ describe("review 2026-11-19 (late)", () => {
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)[0].content).not.toBe("Typed but not saved");
     expect(button("Save revision").disabled).toBe(false);
   });
+
+  it("a batch Undo brings back the unsaved draft of every recipe it restores", () => {
+    const head = (text: string) => [...host.querySelectorAll<HTMLButtonElement>(".pl-row-head")].find((b) => b.textContent?.includes(text))!;
+    // A (open by default) gets an unsaved edit, then is removed; B is opened, edited, removed; one Undo.
+    type($<HTMLTextAreaElement>(".pl-detail textarea")!, "Draft of A");
+    press($("[aria-label^='Remove Review a diff']")!);
+    press(head("research brief"));
+    type($<HTMLTextAreaElement>(".pl-detail textarea")!, "Draft of B");
+    press($("[aria-label^='Remove '][aria-label*='research brief']")!);
+    press(button("Undo", $(".as-toast")!));
+    expect($<HTMLTextAreaElement>(".pl-detail textarea")!.value).toBe("Draft of B");
+    // A's draft is waiting for it too: opening A shows it, still unsaved.
+    press(head("Review a diff"));
+    expect($<HTMLTextAreaElement>(".pl-detail textarea")!.value).toBe("Draft of A");
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!).some((r: { content: string }) => r.content.startsWith("Draft of"))).toBe(false);
+  });
 });

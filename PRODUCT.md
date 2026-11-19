@@ -19,7 +19,7 @@ work and wants the exact text easy to find and copy.
    Writing); search title, purpose, instruction text and area (case-insensitive).
 2. Open a recipe, edit its instruction, save the revision in this browser, or copy the exact text to the clipboard.
    An unsaved edit belongs to the recipe it was typed in: collapsing and reopening that recipe keeps it, opening
-   another recipe drops it.
+   another recipe drops it. Undo of a removal brings back the unsaved edit of every recipe it restores.
 3. Add a recipe (name and instruction required, purpose optional) or remove the open one.
 4. Saved recipes are read back on reload; malformed saved entries are skipped instead of crashing the page.
 5. `/api/mcp` answers JSON-RPC with `get_all`, `get_by_id` and `search` (text, stage, area) over the four sample

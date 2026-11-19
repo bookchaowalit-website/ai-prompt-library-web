@@ -67,6 +67,8 @@ export default function Home() {
   // A revision just saved: if the edit made the recipe drop out of the current search, focus goes to the search box.
   const savedRecipe = useRef<string | null>(null);
   const wasComposing = useRef(false);
+  // Unsaved drafts that Undo brought back for recipes not open right now: each returns when its recipe opens.
+  const restoredDrafts = useRef(new Map<string, string>());
 
   const visible = useMemo(() => filterRecipes(recipes, stageFilter, areaFilter, query), [areaFilter, query, recipes, stageFilter]);
   const stageCounts = countByStage(recipes);
@@ -113,8 +115,11 @@ export default function Home() {
 
   function toggle(recipe: PromptRecipe) {
     setOpenId((current) => (current === recipe.id ? "" : recipe.id));
-    // Collapsing (or reopening) a recipe keeps its unsaved draft; opening another recipe drops it.
-    setDraft((current) => (current?.id === recipe.id ? current : null));
+    // Collapsing (or reopening) a recipe keeps its unsaved draft; opening another recipe drops it, unless Undo
+    // brought a draft back for the recipe being opened.
+    const waiting = restoredDrafts.current.get(recipe.id);
+    restoredDrafts.current.delete(recipe.id);
+    setDraft((current) => (current?.id === recipe.id ? current : waiting === undefined ? null : { id: recipe.id, text: waiting }));
     setNoticeState(null);
     setSavedOff("");
   }
@@ -152,7 +157,8 @@ export default function Home() {
     if (index < 0) return;
     store.set(current.filter((r) => r.id !== recipe.id));
     const shownAt = visible.findIndex((r) => r.id === recipe.id);
-    const unsaved = draft?.id === recipe.id && draft.text !== current[index].content ? draft.text : undefined;
+    const unsaved = draft?.id === recipe.id && draft.text !== current[index].content ? draft.text : restoredDrafts.current.get(recipe.id);
+    restoredDrafts.current.delete(recipe.id);
     const entry: RemovedEntry = { recipe: current[index], index, nextShown: visible[shownAt + 1]?.id, prevShown: shownAt > 0 ? visible[shownAt - 1].id : undefined, draft: unsaved };
     const items = [...(removedRef.current?.items ?? []), entry];
     setRemoved({ items, viaKeyboard });
@@ -180,10 +186,13 @@ export default function Home() {
     // Undone: back to the restored recipe the user removed last, opened, unless another recipe is open with
     // unsaved edits: that editor (and its draft) stays, and only the restored row takes focus.
     const editingOther = draft !== null && draft.id === openId && draft.id !== latest.id && recipes.some((r) => r.id === draft.id && r.content !== draft.text);
+    // Every restored recipe gets its unsaved edit back, still unsaved: the one that opens now in the editor,
+    // the others when they are opened.
+    for (const item of items) if (item.draft !== undefined) restoredDrafts.current.set(item.recipe.id, item.draft);
     if (!editingOther) {
       setOpenId(latest.id);
-      // Its unsaved edit comes back into the editor, still unsaved.
-      const lastDraft = items[items.length - 1].draft;
+      const lastDraft = restoredDrafts.current.get(latest.id);
+      restoredDrafts.current.delete(latest.id);
       setDraft(lastDraft === undefined ? null : { id: latest.id, text: lastDraft });
     }
     closeToast([latest.id]);
