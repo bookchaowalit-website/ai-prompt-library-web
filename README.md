@@ -36,4 +36,4 @@ scan on every push and PR to `main`.
 - `app/api/mcp/route.ts`: stateless JSON-RPC endpoint with `get_all`, `get_by_id` and `search` over the samples.
 - `lib/sentry.ts` + `instrumentation*.ts`: error reporting to Sentry, errors only, personal data stripped; off when
   `NEXT_PUBLIC_SENTRY_DSN` is unset.
-- `app/more-projects/page.tsx`: shared portfolio link page (copied per repository, not a package).
+- `/more-projects` redirects (308) to https://bookchaowalit.com/ (`next.config.ts`).

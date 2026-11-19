@@ -1,60 +1,22 @@
----
-name: Prompt Workbench
-description: A staged cue wall for preparing, revising, and handing off prompt recipes.
-colors:
-  void: "#090d18"
-  void-soft: "#111827"
-  white: "#f3f3ec"
-  white-soft: "#cdd4e0"
-  line: "#3b485d"
-  muted: "#aab5c7"
-  cobalt: "#5276e8"
-  rose: "#df7e96"
-  day: "#e8eadf"
-  amber: "#f0c869"
-  danger: "#f09c86"
-typography:
-  display:
-    fontFamily: "Barlow Condensed, Arial Narrow, Arial, sans-serif"
-    fontSize: "clamp(3.35rem, 8vw, 6.5rem)"
-    fontWeight: 560
-    lineHeight: 0.88
-    letterSpacing: "-0.085em"
-  body:
-    fontFamily: "Barlow Condensed, Arial Narrow, Arial, sans-serif"
-    fontSize: "1rem"
-    fontWeight: 400
-    lineHeight: 1.65
-  data:
-    fontFamily: "JetBrains Mono, SFMono-Regular, Consolas, monospace"
-    fontSize: "0.62rem"
-    fontWeight: 400
-    lineHeight: 1.4
-rounded:
-  pill: "999px"
-spacing:
-  frame: "1220px"
-  section: "84px"
-  content: "20px"
-components:
-  active-stage:
-    backgroundColor: "{colors.rose}"
-    textColor: "{colors.void}"
-    padding: "15px 16px"
----
+# Prompt Library — Design
 
-# Design System: Prompt Workbench
+Since 2026-11-19 the library uses the shared **App shell** (see `APP-SHELL.md`; `app/app-shell.css` and
+`components/app-shell.tsx` are copied byte for byte from productivity-ideas-web). It replaced the earlier dark
+"cue wall" look, whose 9–10px mono labels, 26px filter pills, one rose colour for every stage, tall phone hero and
+mixed cue/recipe/cut wording failed the design floor (review 2026-11-11).
 
-## Overview
+- Sidebar of stages (All / Draft / Refine / Ready / Retired with counts; a pill row on phones). Each stage has one
+  tone used by its sidebar dot and its row pill: Draft grey, Refine amber, Ready green, Retired red (text + tint,
+  never colour alone).
+- Head: the stage as h1, one count line ("4 recipes", or "Showing 1 of 4 recipes" when filtered), search and
+  **New recipe**. One word throughout: recipe.
+- Area filter is a 44px segmented control (two columns on phones).
+- The composer opens in place, focuses Name, and keeps Add disabled until name and instruction have text.
+- Rows open in place (accordion, `aria-expanded`): editable instruction, **Save revision** (disabled until the
+  text changes), **Copy exact text**, **Remove** (undoable for six seconds, no confirm dialog).
+- Empty states differ for "No recipes yet" and "No recipe matches" (with Clear filters).
 
-**Creative North Star: “The cue wall before the next scene.”**
-
-Prompt Workbench translates prompt lifecycle into a stagecraft surface: a dark room, a horizontal cue rail, and a selected instruction under the working light. Draft, Refine, Ready, and Retired are operational phases, not scores. Cobalt and rose mark the horizon bands; amber marks the active handoff. The page is an index plus an editable work surface rather than a generic prompt-card grid.
-
-## Rules
-
-- The dark void is the working room; color belongs to lifecycle and action.
-- Use mono for stage, area, dates, and exact instruction text; use sans for purpose and explanation.
-- The cue rail is the navigation model. Selecting a phase changes the index without reloading.
-- The instruction is always visible and editable before the copy handoff.
-- No model output, quality claim, or API state is implied by the interface.
+Floor: Geist via `next/font` (variable on `<html>`), text ≥ 12px, controls ≥ 44px, 4.5:1 text contrast in
+light and dark, 3px focus ring, forced-colors support, no horizontal scroll at 320px. `/more-projects`
+redirects (308) to https://bookchaowalit.com/ and the footer links there. Canonical domain, robots.txt and
+sitemap.xml: https://prompt-library.bookchaowalit.com.

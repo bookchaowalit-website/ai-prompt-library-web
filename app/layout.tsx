@@ -1,36 +1,30 @@
 import type { Metadata } from "next";
-import { Barlow_Condensed, JetBrains_Mono } from "next/font/google";
+import { Geist } from "next/font/google";
+import { SITE_URL } from "@/lib/site";
 import "./globals.css";
-import { Analytics } from "@vercel/analytics/react";
-import { SpeedInsights } from "@vercel/speed-insights/next";
 
-const barlow = Barlow_Condensed({ variable: "--font-barlow", subsets: ["latin"], weight: ["400", "500", "600", "700"] });
-const jetBrains = JetBrains_Mono({ variable: "--font-jetbrains", subsets: ["latin"], weight: ["400", "500", "600", "700"] });
+// The font variable sits on <html>: the App shell tokens live on :root and read it from there.
+const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
+
+const title = "Prompt Library | Bookchaowalit";
+const description = "A private, in-browser library for preparing and reusing prompt recipes.";
 
 export const metadata: Metadata = {
-  title: "Prompt Workbench | Bookchaowalit",
-  description: "A local recipe shelf for preparing and reusing prompt instructions.",
+  title,
+  description,
   keywords: ["prompt-library", "portfolio"],
   authors: [{ name: "Bookchaowalit", url: "https://bookchaowalit.com" }],
   creator: "Bookchaowalit",
-  metadataBase: new URL("https://bookchaowalit.com"),
-  openGraph: {
-    type: "website",
-    title: "Prompt Workbench | Bookchaowalit",
-    description: "A local recipe shelf for preparing and reusing prompt instructions.",
-    siteName: "Bookchaowalit",
-  },
+  metadataBase: new URL(SITE_URL),
+  alternates: { canonical: "/" },
+  openGraph: { type: "website", title, description, siteName: "Bookchaowalit" },
   robots: { index: true, follow: true },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`${barlow.variable} ${jetBrains.variable}`}>
-      <body className="antialiased">
-        <Analytics />
-        <SpeedInsights />
-        {children}
-      </body>
+    <html lang="en" className={geistSans.variable}>
+      <body>{children}</body>
     </html>
   );
 }

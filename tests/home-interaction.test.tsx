@@ -1,0 +1,116 @@
+// @vitest-environment happy-dom
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import Home from "@/app/page";
+import { STORAGE_KEY } from "@/lib/prompts";
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+let root: Root;
+let host: HTMLDivElement;
+const $ = <T extends Element = HTMLElement>(selector: string) => host.querySelector(selector) as T | null;
+const button = (text: string, scope: ParentNode = host) => [...scope.querySelectorAll("button")].find((b) => b.textContent?.trim().startsWith(text)) as HTMLButtonElement;
+const titles = () => [...host.querySelectorAll(".pl-title")].map((t) => t.textContent);
+const press = (el: Element) => act(() => { el.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+function type(el: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, value: string) {
+  const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : el instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
+  act(() => {
+    Object.getOwnPropertyDescriptor(proto, "value")!.set!.call(el, value);
+    el.dispatchEvent(new Event(el instanceof HTMLSelectElement ? "change" : "input", { bubbles: true }));
+  });
+}
+
+beforeEach(() => {
+  localStorage.clear();
+  host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
+  act(() => root.render(<Home />));
+});
+afterEach(() => {
+  act(() => root.unmount());
+  host.remove();
+  vi.useRealTimers();
+});
+
+describe("filters", () => {
+  it("filters by stage, area and search, and offers Clear filters when nothing matches", () => {
+    expect(titles()).toHaveLength(4);
+    press(button("Ready", $(".as-side")!));
+    expect($("h1")!.textContent).toBe("Ready recipes");
+    expect(titles()).toHaveLength(2);
+    press(button("Writing", $(".as-segmented")!));
+    expect(titles()).toEqual(["Rewrite a technical note for a human reader"]);
+    type($<HTMLInputElement>("input[type=search]")!, "nothing like this");
+    expect(host.textContent).toContain("No recipe matches");
+    press(button("Clear filters"));
+    expect(titles()).toHaveLength(4);
+    expect(host.textContent).toContain("4 recipes");
+  });
+});
+
+describe("composer", () => {
+  it("opens focused, needs a name and instruction, adds on top and opens the new recipe", () => {
+    press(button("New recipe"));
+    expect(document.activeElement).toBe($(".as-composer input"));
+    expect(button("Add", $(".as-composer")!).disabled).toBe(true);
+    const [name, purpose] = host.querySelectorAll<HTMLInputElement>(".as-composer input");
+    type(name, "Summarise a meeting");
+    type(purpose, "Turn notes into actions");
+    type($<HTMLTextAreaElement>(".as-composer textarea")!, "List decisions and owners.");
+    const [area, stage] = host.querySelectorAll<HTMLSelectElement>(".as-composer select");
+    type(area, "Writing");
+    type(stage, "Ready");
+    act(() => { $("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+    expect(titles()[0]).toBe("Summarise a meeting");
+    expect($(".pl-row-head")!.getAttribute("aria-expanded")).toBe("true");
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)[0]).toMatchObject({ title: "Summarise a meeting", area: "Writing", stage: "Ready" });
+    press(button("New recipe"));
+    press(button("Cancel"));
+    expect($(".as-composer")).toBeNull();
+    expect(document.activeElement?.textContent).toContain("New recipe");
+  });
+});
+
+describe("recipe detail", () => {
+  it("edits, saves, copies, removes with undo and collapses", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    const editor = $<HTMLTextAreaElement>(".pl-detail textarea")!;
+    expect(button("Save revision").disabled).toBe(true);
+    type(editor, "Shorter review prompt");
+    press(button("Save revision"));
+    expect(host.textContent).toContain("Revision saved in this browser.");
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)[0].content).toBe("Shorter review prompt");
+    await act(async () => { button("Copy exact text").click(); });
+    expect(writeText).toHaveBeenCalledWith("Shorter review prompt");
+    expect(host.textContent).toContain("Prompt copied.");
+    writeText.mockRejectedValueOnce(new Error("blocked"));
+    await act(async () => { button("Copy exact text").click(); });
+    expect(host.textContent).toContain("Copy was blocked");
+
+    vi.useFakeTimers();
+    press($("[aria-label^='Remove Review a diff']")!);
+    expect(titles()).toHaveLength(3);
+    expect($(".as-toast")!.textContent).toContain("Removed");
+    press(button("Undo", $(".as-toast")!));
+    expect(titles()[0]).toBe("Review a diff for behavior, not just style");
+    press($("[aria-label^='Remove Review a diff']")!);
+    act(() => { vi.advanceTimersByTime(7000); });
+    expect($(".as-toast")).toBeNull();
+
+    press($(".pl-row-head")!);
+    expect($(".pl-detail")).not.toBeNull();
+    press($(".pl-row-head")!);
+    expect($(".pl-detail")).toBeNull();
+  });
+
+  it("says when the library is empty", () => {
+    for (let i = 0; i < 4; i++) {
+      if (!$(".pl-detail")) press($(".pl-row-head")!);
+      press($("[aria-label^='Remove']")!);
+    }
+    expect(host.textContent).toContain("No recipes yet");
+  });
+});
