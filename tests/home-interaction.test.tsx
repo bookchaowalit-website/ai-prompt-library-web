@@ -255,4 +255,24 @@ describe("review 2026-11-19 (late)", () => {
     expect($<HTMLTextAreaElement>(".pl-detail textarea")!.value).toBe("Draft of A");
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!).some((r: { content: string }) => r.content.startsWith("Draft of"))).toBe(false);
   });
+
+  it("Undo keeps the unsaved draft of a recipe that was collapsed, not open", () => {
+    const head = (text: string) => [...host.querySelectorAll<HTMLButtonElement>(".pl-row-head")].find((b) => b.textContent?.includes(text))!;
+    press($("[aria-label^='Remove Review a diff']")!);
+    press(head("research brief"));
+    type($<HTMLTextAreaElement>(".pl-detail textarea")!, "Draft of B");
+    press(head("research brief")); // collapse B, draft still unsaved
+    press(button("Undo", $(".as-toast")!));
+    press(head("research brief"));
+    expect($<HTMLTextAreaElement>(".pl-detail textarea")!.value).toBe("Draft of B");
+  });
+
+  it("after a keyboard save (the Save button turns disabled) focus moves to Copy exact text in the same row", () => {
+    type($<HTMLTextAreaElement>(".pl-detail textarea")!, "Saved from the keyboard");
+    const save = button("Save revision");
+    act(() => { save.focus(); });
+    press(save, 0);
+    expect(save.disabled).toBe(true);
+    expect(document.activeElement).toBe(button("Copy exact text"));
+  });
 });

@@ -67,7 +67,7 @@ export default function Home() {
   // A revision just saved: if the edit made the recipe drop out of the current search, focus goes to the search box.
   const savedRecipe = useRef<string | null>(null);
   const wasComposing = useRef(false);
-  // Unsaved drafts that Undo brought back for recipes not open right now: each returns when its recipe opens.
+  // Unsaved drafts of recipes not open right now (brought back or set aside by Undo): each returns when its recipe opens.
   const restoredDrafts = useRef(new Map<string, string>());
 
   const visible = useMemo(() => filterRecipes(recipes, stageFilter, areaFilter, query), [areaFilter, query, recipes, stageFilter]);
@@ -139,7 +139,16 @@ export default function Home() {
     const id = savedRecipe.current;
     if (!id) return;
     savedRecipe.current = null;
-    if (!visible.some((r) => r.id === id)) searchRef.current?.focus();
+    if (!visible.some((r) => r.id === id)) {
+      searchRef.current?.focus();
+      return;
+    }
+    // Still shown: Save revision is disabled now (no changes left), so focus held on it (or already dropped to the
+    // page) moves to Copy exact text in the same row.
+    const active = document.activeElement;
+    const row = document.querySelector<HTMLElement>(`.pl-row[data-recipe="${CSS.escape(id)}"]`);
+    if (!row || !(active === document.body || (active instanceof HTMLButtonElement && active.disabled && row.contains(active)))) return;
+    row.querySelector<HTMLButtonElement>(".pl-copy")?.focus();
   }, [visible]);
 
   async function copyRecipe(id: string, text: string) {
@@ -190,6 +199,8 @@ export default function Home() {
     // the others when they are opened.
     for (const item of items) if (item.draft !== undefined) restoredDrafts.current.set(item.recipe.id, item.draft);
     if (!editingOther) {
+      // A collapsed recipe can still hold an unsaved draft: park it so it returns when that recipe opens.
+      if (draft && draft.id !== latest.id && recipes.some((r) => r.id === draft.id && r.content !== draft.text)) restoredDrafts.current.set(draft.id, draft.text);
       setOpenId(latest.id);
       const lastDraft = restoredDrafts.current.get(latest.id);
       restoredDrafts.current.delete(latest.id);
@@ -306,7 +317,7 @@ export default function Home() {
                         </label>
                         <div className="pl-actions">
                           <button type="button" className="as-button" onClick={() => saveRevision(recipe, text)} disabled={text === recipe.content}>Save revision</button>
-                          <button type="button" className="as-plain" onClick={() => copyRecipe(recipe.id, text)}>Copy exact text</button>
+                          <button type="button" className="as-plain pl-copy" onClick={() => copyRecipe(recipe.id, text)}>Copy exact text</button>
                           <button type="button" className="as-plain as-danger" aria-label={`Remove ${recipe.title}`} onClick={(event) => remove(recipe, event.detail === 0)}>Remove</button>
                         </div>
                         <p className="pl-status" role="status">{notice?.id === recipe.id ? notice.text : ""}</p>
