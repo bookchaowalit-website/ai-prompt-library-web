@@ -35,6 +35,8 @@ work and wants the exact text easy to find and copy.
 ## Known limits
 
 - With the New recipe form open, closing Undo (Escape) when no matching recipe row is left tries to focus the disabled New recipe button, so focus falls to the page; frozen app, not fixed (Codex report -ba0f882b92).
+- Undo puts a removed recipe back at its old index, so after Add (new recipes go on top) it lands above the new recipe instead of below it; frozen app, not fixed (Codex report -d1185ca6cc).
+- Undo opens the restored recipe even when the current filter hides it, which closes the editor that was open and visible; frozen app, not fixed (Codex report -d1185ca6cc).
 
 ## Live URL and deploy state
 
